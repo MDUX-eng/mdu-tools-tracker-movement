@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools Tracker</title>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #f4f4f4; display: flex; justify-content: center; padding: 20px; margin: 0; }
+        .container { width: 100%; max-width: 500px; padding: 25px; border: 1px solid #000; background: #fff; text-align: center; box-shadow: 5px 5px 0px #000; box-sizing: border-box; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #000; box-sizing: border-box; font-size: 1em; }
+        button { width: 100%; padding: 12px; margin-top: 10px; background: #000; color: #fff; border: none; cursor: pointer; font-weight: bold; font-size: 1em; }
+        button.outline { background: #fff; color: #000; border: 1px solid #000; }
+        button:disabled { opacity: 0.5; cursor: wait; }
+        .hidden { display: none !important; }
+        .info-box { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: left; }
+        .status-msg { margin: 15px 0; font-weight: bold; }
+        .msg-ok { color: green; }
+        .msg-err { color: #c00; }
+        .muted { color: #555; font-size: 0.85em; }
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .review-box { text-align: left; background: #f9f9f9; padding: 15px; border: 1px solid #000; margin: 15px 0; line-height: 1.7; font-size: 0.9em; word-break: break-word; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #000; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 10px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        hr { border: 0; border-top: 1px solid #000; margin: 15px 0; }
+        #reader { width: 100%; border: 1px solid #000; }
+        .big-icon { width: 90px; height: 90px; line-height: 90px; border-radius: 50%; margin: 10px auto; color: #fff; font-size: 50px; font-weight: bold; }
+        .icon-ok { background: green; }
+        .icon-err { background: #c00; }
+        .tag-sent { display: inline-block; margin-bottom: 5px; padding: 3px 10px; border: 1px solid green; color: green; font-size: 0.8em; font-weight: bold; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- 1. LOGIN -->
+    <section id="screen-login">
+        <h2>Tools Tracker</h2>
+        <form id="login-form">
+            <input type="text" id="login-id" placeholder="User ID" autocomplete="username" required>
+            <input type="password" id="login-pass" placeholder="Password" autocomplete="current-password" required>
+            <button type="submit" id="login-btn">MASUK</button>
+        </form>
+        <p id="login-msg" class="status-msg msg-err"></p>
+    </section>
+
+    <!-- 2-4. BERANDA + LOKASI + PILIH STATUS -->
+    <section id="screen-home" class="hidden">
+        <div class="info-box">Hallo <strong id="hello-user"></strong></div>
+
+        <div id="loc-loading">
+            <div class="loader"></div>
+            <p>Mendeteksi lokasi...</p>
+        </div>
+
+        <div id="loc-result" class="hidden">
+            <p id="loc-text" class="status-msg"></p>
+            <p id="loc-detail" class="muted"></p>
+            <button id="btn-retry-loc" class="outline hidden">DETEKSI ULANG LOKASI</button>
+        </div>
+
+        <div id="action-buttons" class="btn-row hidden">
+            <button data-status="Check-out">CHECKOUT</button>
+            <button data-status="Check-in">CHECKIN</button>
+        </div>
+
+        <hr>
+        <button class="outline" id="btn-logout">LOGOUT</button>
+    </section>
+
+    <!-- 5. SCAN QR -->
+    <section id="screen-scan" class="hidden">
+        <div class="info-box">Mode: <strong id="scan-status"></strong><br><span class="muted" id="scan-loc"></span></div>
+        <div id="reader"></div>
+        <p id="scan-msg" class="muted">Arahkan kamera ke QR code tools</p>
+        <button class="outline" id="btn-cancel-scan">BATAL</button>
+    </section>
+
+    <!-- 6-7. KONFIRMASI & HASIL -->
+    <section id="screen-result" class="hidden">
+        <div id="result-loading">
+            <div class="loader"></div>
+            <p id="result-loading-text" class="muted"></p>
+        </div>
+        <div id="result-icon" class="big-icon hidden"></div>
+        <div id="result-sent-tag" class="tag-sent hidden">✔ TERKIRIM KE SPREADSHEET</div>
+        <h2 id="result-title"></h2>
+        <div id="result-detail" class="review-box hidden"></div>
+        <p id="result-error" class="status-msg msg-err hidden"></p>
+
+        <!-- Tahap konfirmasi -->
+        <div id="confirm-actions" class="hidden">
+            <button id="btn-submit">SUBMIT</button>
+            <button class="outline" id="btn-cancel-confirm">BATAL & SCAN ULANG</button>
+        </div>
+
+        <!-- Setelah terkirim / gagal -->
+        <div id="result-actions" class="btn-row hidden">
+            <button class="outline" id="btn-home">KEMBALI KE BERANDA</button>
+            <button id="btn-scan-again">SCAN LAGI</button>
+        </div>
+    </section>
+
+</div>
+
+<script>
+    // ===== KONFIGURASI =====
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwfUA-BzNHfMtqaGCx73XLn-dSaGivJtLxcp2Jy0T2NbcQ56Ow0RVhqFX5EhmZ0b5Ldfw/exec";
+    const LOCATION_MAX_AGE_MS = 10 * 60 * 1000; // lokasi dianggap kedaluwarsa setelah 10 menit
+
+    // ===== STATE =====
+    const $ = id => document.getElementById(id);
+    const state = {
+        token: sessionStorage.getItem("tt_token"),
+        userId: sessionStorage.getItem("tt_user"),
+        location: null,   // nama lokasi tervalidasi
+        coords: null,     // { lat, lng, accuracy, time }
+        status: null,     // "Check-in" / "Check-out"
+        scanner: null,
+        busy: false
+    };
+
+    function show(screen) {
+        ["login", "home", "scan", "result"].forEach(s =>
+            $("screen-" + s).classList.toggle("hidden", s !== screen));
+    }
+    function toggle(id, visible) { $(id).classList.toggle("hidden", !visible); }
+
+    // ===== API KE APPS SCRIPT =====
+    async function api(action, data = {}) {
+        if (SCRIPT_URL.startsWith("PASTE")) throw new Error("SCRIPT_URL belum diisi di index.html");
+        let res;
+        try {
+            res = await fetch(SCRIPT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "text/plain;charset=utf-8" }, // text/plain = tanpa CORS preflight
+                body: JSON.stringify({ action, token: state.token, ...data })
+            });
+        } catch (e) {
+            throw new Error("Tidak dapat terhubung ke server. Cek internet atau pengaturan deploy Apps Script.");
+        }
+        if (!res.ok) throw new Error("Server error (HTTP " + res.status + ")");
+
+        let out;
+        try { out = await res.json(); }
+        catch (e) { throw new Error("Respons server tidak valid. Pastikan Web App di-deploy dengan akses 'Anyone'."); }
+
+        if (out.sessionExpired) {
+            endSession("Sesi berakhir, silakan login ulang.");
+            const err = new Error("SESSION"); err.silent = true; throw err;
+        }
+        return out;
+    }
+
+    // ===== 1. LOGIN =====
+    $("login-form").addEventListener("submit", async e => {
+        e.preventDefault();
+        const btn = $("login-btn");
+        $("login-msg").textContent = "";
+        btn.disabled = true; btn.textContent = "MEMPROSES...";
+        try {
+            const out = await api("login", {
+                userId: $("login-id").value.trim(),
+                password: $("login-pass").value
+            });
+            if (!out.ok) { $("login-msg").textContent = out.error; return; }
+            state.token = out.token;
+            state.userId = out.userId;
+            sessionStorage.setItem("tt_token", out.token);
+            sessionStorage.setItem("tt_user", out.userId);
+            $("login-pass").value = "";
+            goHome();
+        } catch (err) {
+            if (!err.silent) $("login-msg").textContent = err.message;
+        } finally {
+            btn.disabled = false; btn.textContent = "MASUK";
+        }
+    });
+
+    function endSession(msg) {
+        stopScanner();
+        state.token = state.userId = state.location = state.coords = null;
+        sessionStorage.removeItem("tt_token");
+        sessionStorage.removeItem("tt_user");
+        $("login-msg").textContent = msg || "";
+        show("login");
+    }
+
+    $("btn-logout").addEventListener("click", () => {
+        api("logout").catch(() => {}); // token dikirim sebelum dihapus di bawah
+        endSession("");
+    });
+
+    // ===== 2-3. BERANDA & PENGENALAN LOKASI =====
+    function goHome() {
+        show("home");
+        $("hello-user").textContent = state.userId;
+        detectLocation();
+    }
+
+    function setLocMsg(text, type, detail) {
+        $("loc-text").textContent = text;
+        $("loc-text").className = "status-msg msg-" + type;
+        $("loc-detail").textContent = detail || "";
+        toggle("loc-result", true);
+    }
+
+    function getPosition() {
+        return new Promise((resolve, reject) => {
+            if (!window.isSecureContext) return reject(new Error("GPS & kamera membutuhkan HTTPS. Buka website lewat https://"));
+            if (!navigator.geolocation) return reject(new Error("Browser tidak mendukung GPS"));
+            navigator.geolocation.getCurrentPosition(resolve, err => {
+                const msg = {
+                    1: "Izin lokasi ditolak. Aktifkan izin lokasi untuk website ini di pengaturan browser.",
+                    2: "Lokasi tidak tersedia. Pastikan GPS aktif.",
+                    3: "Waktu deteksi lokasi habis. Coba lagi."
+                }[err.code] || err.message;
+                reject(new Error(msg));
+            }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+        });
+    }
+
+    async function detectLocation() {
+        state.location = null;
+        state.coords = null;
+        toggle("loc-loading", true);
+        toggle("loc-result", false);
+        toggle("action-buttons", false);
+        toggle("btn-retry-loc", false);
+
+        try {
+            const pos = await getPosition();
+            state.coords = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                accuracy: Math.round(pos.coords.accuracy),
+                time: Date.now()
+            };
+            const out = await api("checkLocation", state.coords);
+            if (!out.ok) throw new Error(out.error);
+
+            if (out.valid) {
+                state.location = out.location;
+                setLocMsg("📍 " + out.location, "ok",
+                    `Jarak ${out.distance} m · akurasi GPS ±${state.coords.accuracy} m`);
+                toggle("action-buttons", true);
+            } else {
+                setLocMsg(out.message || "Lokasi tidak terdaftar, hubungi Admin!", "err",
+                    out.nearestDistance != null
+                        ? `Lokasi terdaftar terdekat ±${out.nearestDistance} m · akurasi GPS ±${state.coords.accuracy} m`
+                        : "Belum ada lokasi di database");
+                toggle("btn-retry-loc", true);
+            }
+        } catch (err) {
+            if (err.silent) return;
+            setLocMsg(err.message, "err", "");
+            toggle("btn-retry-loc", true);
+        } finally {
+            toggle("loc-loading", false);
+        }
+    }
+
+    $("btn-retry-loc").addEventListener("click", detectLocation);
+
+    // ===== 4-5. PILIH STATUS & SCAN QR =====
+    document.querySelectorAll("#action-buttons button").forEach(b =>
+        b.addEventListener("click", () => startScan(b.dataset.status)));
+
+    async function startScan(status) {
+        if (!state.location || !state.coords) return goHome();
+        if (Date.now() - state.coords.time > LOCATION_MAX_AGE_MS) return goHome(); // lokasi sudah lama, deteksi ulang
+
+        state.status = status;
+        state.busy = false;
+        $("scan-status").textContent = status;
+        $("scan-loc").textContent = state.location;
+        $("scan-msg").textContent = "Arahkan kamera ke QR code tools";
+        $("scan-msg").className = "muted";
+        show("scan");
+
+        try {
+            if (!state.scanner) state.scanner = new Html5Qrcode("reader");
+            await state.scanner.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } },
+                onScan,
+                () => {} // abaikan error per-frame
+            );
+        } catch (err) {
+            $("scan-msg").textContent = "Kamera tidak dapat dibuka: " + (err && err.message ? err.message : err) +
+                ". Pastikan izin kamera diizinkan.";
+            $("scan-msg").className = "status-msg msg-err";
+        }
+    }
+
+    async function stopScanner() {
+        if (state.scanner && state.scanner.isScanning) {
+            try { await state.scanner.stop(); } catch (e) {}
+        }
+    }
+
+    $("btn-cancel-scan").addEventListener("click", async () => {
+        await stopScanner();
+        show("home");
+    });
+
+    // ===== 6. CEK QR SETELAH SCAN (belum disimpan) =====
+    let pendingTool = null; // { toolsId, toolsName } menunggu tombol SUBMIT
+
+    function resetResultScreen() {
+        ["result-icon", "result-sent-tag", "result-detail", "result-error",
+         "confirm-actions", "result-actions"].forEach(id => toggle(id, false));
+        $("result-title").textContent = "";
+        $("result-title").className = "";
+    }
+
+    function showLoading(text) {
+        $("result-loading-text").textContent = text;
+        toggle("result-loading", true);
+    }
+
+    function renderRows(rows) {
+        const box = $("result-detail");
+        box.replaceChildren();
+        rows.forEach(([label, value]) => {
+            const line = document.createElement("div");
+            const b = document.createElement("strong");
+            b.textContent = label + ": ";
+            line.append(b, document.createTextNode(value)); // textContent = aman dari XSS
+            box.appendChild(line);
+        });
+        toggle("result-detail", rows.length > 0);
+    }
+
+    async function onScan(text) {
+        if (state.busy) return; // cegah scan ganda
+        state.busy = true;
+        await stopScanner();
+
+        const toolsId = String(text).trim();
+        pendingTool = null;
+        show("result");
+        resetResultScreen();
+        showLoading("Memeriksa QR: " + toolsId);
+
+        try {
+            const out = await api("checkTool", { toolsId });
+
+            // Apps Script versi lama belum punya "checkTool": lanjut ke konfirmasi,
+            // QR tetap divalidasi server saat SUBMIT.
+            if (!out.ok && out.error === "Aksi tidak dikenal") {
+                console.warn("Apps Script masih versi lama. Deploy 'Versi baru' agar nama tools tampil sebelum submit.");
+                pendingTool = { toolsId, toolsName: "(dicek saat submit)" };
+                showConfirm();
+                return;
+            }
+            if (!out.ok) throw new Error(out.error);
+
+            if (!out.registered) {
+                showFinal(false, "QR Belum terdaftar", [["Isi QR", toolsId]]);
+                return;
+            }
+            pendingTool = { toolsId: out.toolsId, toolsName: out.toolsName };
+            showConfirm();
+        } catch (err) {
+            if (err.silent) return;
+            showFinal(false, "Gagal memeriksa QR", [["Isi QR", toolsId], ["Keterangan", err.message]]);
+        }
+    }
+
+    // ===== 7. KONFIRMASI SEBELUM KIRIM =====
+    function showConfirm() {
+        toggle("result-loading", false);
+        $("result-title").textContent = "Konfirmasi Data";
+        renderRows([
+            ["User ID", state.userId],
+            ["Tools ID", pendingTool.toolsId],
+            ["Nama Tools", pendingTool.toolsName || "-"],
+            ["Lokasi", state.location],
+            ["Status", state.status]
+        ]);
+        $("btn-submit").disabled = false;
+        $("btn-submit").textContent = "SUBMIT";
+        $("btn-cancel-confirm").disabled = false;
+        toggle("confirm-actions", true);
+    }
+
+    $("btn-submit").addEventListener("click", async () => {
+        if (!pendingTool) return;
+        const btn = $("btn-submit");
+        btn.disabled = true;
+        $("btn-cancel-confirm").disabled = true;
+        btn.textContent = "MENGIRIM...";
+        toggle("result-error", false);
+
+        try {
+            const out = await api("submitScan", {
+                toolsId: pendingTool.toolsId,
+                status: state.status,
+                lat: state.coords.lat,
+                lng: state.coords.lng
+            });
+
+            if (out.ok && out.saved) {
+                pendingTool = null;
+                showFinal(true, "Pemindaian Sukses", [
+                    ["User ID", state.userId],
+                    ["Tools ID", out.toolsId],
+                    ["Nama Tools", out.toolsName || "-"],
+                    ["Waktu", new Date(out.timestamp).toLocaleString("id-ID")],
+                    ["Lokasi", out.location],
+                    ["Status", out.status]
+                ]);
+            } else if (out.ok && out.reason === "QR") {
+                showFinal(false, "QR Belum terdaftar", [["Isi QR", pendingTool.toolsId]]);
+            } else if (out.ok && out.reason === "LOCATION") {
+                showFinal(false, out.message, [], false);
+            } else {
+                throw new Error(out.error || "Gagal menyimpan data");
+            }
+        } catch (err) {
+            if (err.silent) return;
+            // Tetap di layar konfirmasi agar bisa coba kirim lagi
+            $("result-error").textContent = "✖ " + err.message;
+            toggle("result-error", true);
+            btn.disabled = false;
+            $("btn-cancel-confirm").disabled = false;
+            btn.textContent = "SUBMIT ULANG";
+        }
+    });
+
+    $("btn-cancel-confirm").addEventListener("click", () => {
+        pendingTool = null;
+        startScan(state.status);
+    });
+
+    // ===== 8. HASIL AKHIR =====
+    function showFinal(success, title, rows, allowRescan = true) {
+        toggle("result-loading", false);
+        toggle("confirm-actions", false);
+        toggle("result-error", false);
+
+        const icon = $("result-icon");
+        icon.textContent = success ? "✔" : "✖";
+        icon.className = "big-icon " + (success ? "icon-ok" : "icon-err");
+        toggle("result-sent-tag", success);
+
+        $("result-title").textContent = title;
+        $("result-title").className = success ? "msg-ok" : "msg-err";
+        renderRows(rows);
+
+        toggle("btn-scan-again", allowRescan);
+        $("result-actions").classList.toggle("btn-row", allowRescan); // 1 tombol = lebar penuh
+        toggle("result-actions", true);
+    }
+
+    $("btn-scan-again").addEventListener("click", () => startScan(state.status));
+    $("btn-home").addEventListener("click", goHome);
+
+    // ===== INIT =====
+    if (state.token && state.userId) goHome(); else show("login");
+</script>
+</body>
+</html>
